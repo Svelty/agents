@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
-import { runLolAgent } from "./agents/agents/lolAgent";
+import { runLolAgent } from "./agent/agents/lolAgent";
 
 // const express = require('express')
 

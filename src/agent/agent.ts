@@ -68,7 +68,10 @@ export class AgentService {
         return functionToCall;
     }
 
-    async runFunctionCallingAgent(request: ResponseCreateParamsNonStreaming) {
+    async runFunctionCallingAgent(
+        request: ResponseCreateParamsNonStreaming,
+        functionResultsRequest: ResponseCreateParamsNonStreaming
+    ) {
         const response = await createModelResponseRequest(request);
 
         const functionCalls = response.output;
@@ -86,6 +89,15 @@ export class AgentService {
             }
         }
 
-        return functionCallResults;
+        //TODO: there should probably be an intermidary step here where we can optionally process the results before sending back to gpt
+
+        functionResultsRequest.input =
+            "function call results: " + JSON.stringify(functionCallResults);
+
+        const finalResponse = await createModelResponseRequest(
+            functionResultsRequest
+        );
+
+        return finalResponse;
     }
 }

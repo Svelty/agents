@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import express, { Request, Response } from "express";
 import { runLolAgent } from "./agent/agents/lolAgent";
+import { runSimpleAddingAgent } from "./agent/agents/testMathAgent";
 
 // const express = require('express')
 
@@ -23,9 +24,14 @@ import { runLolAgent } from "./agent/agents/lolAgent";
 
 // console.log("uuuh");
 
+// (async function run() {
+//     // await createModelRequest();
+//     await runLolAgent();
+//     console.log("Model request completed");
+// })();
+
 (async function run() {
     // await createModelRequest();
-    await runLolAgent();
+    await runSimpleAddingAgent();
     console.log("Model request completed");
-    console.log("uuuh");
 })();

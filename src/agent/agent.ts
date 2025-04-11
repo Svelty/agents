@@ -58,14 +58,13 @@ export class AgentService {
         return rest;
     }
 
-    getFunctionToCall(name: string) {
-        const func = this.#functionTools.get(name);
-        if (!func) {
+    getTool(name: string) {
+        const tool = this.#functionTools.get(name);
+        if (!tool) {
             return undefined;
         }
 
-        const { functionToCall } = func;
-        return functionToCall;
+        return tool;
     }
 
     async runFunctionCallingAgent(
@@ -73,23 +72,35 @@ export class AgentService {
         functionResultsRequest: ResponseCreateParamsNonStreaming
     ) {
         const response = await createModelResponseRequest(request);
-
-        const functionCalls = response.output;
+        const modelOutput = response.output;
 
         const functionCallResults: Map<string, any> = new Map();
-        //TODO: probably need to do something to handle async vs sync functions
-        //TODO: need to handle params
-        for (const functionCall of functionCalls) {
+        //TODO:do we need to do something to handle async vs sync functions
+        for (const action of modelOutput) {
             //@ts-ignore
-            const func = getFunctionToCall(functionCall.name);
-            if (func) {
-                const res = await func();
+            const tool = this.getTool(action.name);
+
+            if (tool) {
                 //@ts-ignore
-                functionCallResults.set(functionCall.name, res);
+                const params = Object.keys(tool.parameters.properties);
+
+                //@ts-ignore
+                const args: any[] = [];
+                //@ts-ignore
+                const actionArgs = JSON.parse(action.arguments);
+
+                for (const param of params) {
+                    //@ts-ignore
+                    args.push(actionArgs[param]);
+                }
+
+                const res = await tool.functionToCall(...args);
+                //@ts-ignore
+                functionCallResults.set(action.id + ":" + action.name, res);
             }
         }
 
-        //TODO: there should probably be an intermidary step here where we can optionally process the results before sending back to gpt
+        //TODO:do we need an intermidary step here where we can optionally process the results before sending back to gpt
 
         functionResultsRequest.input =
             "function call results: " + JSON.stringify(functionCallResults);

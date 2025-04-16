@@ -1,6 +1,7 @@
 import {
     FunctionTool,
     ResponseCreateParamsNonStreaming,
+    ResponseInput,
 } from "openai/resources/responses/responses";
 import { createModelResponseRequest } from "../client/openai";
 
@@ -38,47 +39,105 @@ export class AgentService {
     }
 
     async runFunctionCallingAgent(
-        request: ResponseCreateParamsNonStreaming,
-        functionResultsRequest: ResponseCreateParamsNonStreaming
+        prompt: string | ResponseInput,
+        initalInstructions: string
     ) {
-        const response = await createModelResponseRequest(request);
-        const modelOutput = response.output;
+        let input: any[] = [];
+        if (typeof prompt == "string") {
+            input.push({ role: "user", content: prompt });
+        } else {
+            input = [...prompt];
+        }
 
-        const functionCallResults: Map<string, any> = new Map();
-        //TODO:do we need to do something to handle async vs sync functions
-        for (const action of modelOutput) {
+        const tools = Array.from(this.#functionTools.values()).map((func) => {
+            const { functionToCall, ...rest } = func;
+            return rest;
+        });
+
+        const request = {
+            model: "gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o3-mini $1.10
+            input,
+            instructions: initalInstructions,
+            previous_response_id: null,
+            store: false, //Whether to store the generated model response for later retrieval via API. boolean | null;
+            user: "me", //unique id that can identify end user
             //@ts-ignore
-            const tool = this.getTool(action.name);
+            tools,
+        };
 
-            if (tool) {
-                //@ts-ignore
-                const params = Object.keys(tool.parameters.properties);
+        const response = await createModelResponseRequest(request);
 
-                //@ts-ignore
-                const args: any[] = [];
-                //@ts-ignore
-                const actionArgs = JSON.parse(action.arguments);
+        let previousResponseId = response.id;
+        let modelOutput = response.output;
+        let hasFunctionCall = modelOutput.some(
+            (obj) => obj.type === "function_call"
+        );
 
-                for (const param of params) {
+        let followUpResponse;
+
+        let circutBreaker = 0;
+        while (hasFunctionCall) {
+            for (const action of modelOutput) {
+                if (action.type == "function_call") {
                     //@ts-ignore
-                    args.push(actionArgs[param]);
-                }
+                    const tool = this.getTool(action.name);
 
-                const res = await tool.functionToCall(...args);
-                //@ts-ignore
-                functionCallResults.set(action.id + ":" + action.name, res);
+                    if (tool) {
+                        //@ts-ignore
+                        const params = Object.keys(tool.parameters.properties);
+
+                        //@ts-ignore
+                        const args: any[] = [];
+                        //@ts-ignore
+                        const actionArgs = JSON.parse(action.arguments);
+
+                        for (const param of params) {
+                            //@ts-ignore
+                            args.push(actionArgs[param]);
+                        }
+
+                        const res = await tool.functionToCall(...args);
+
+                        input.push(action);
+                        input.push({
+                            // append result message
+                            type: "function_call_output",
+                            call_id: action.call_id,
+                            output: JSON.stringify(res),
+                        });
+                    }
+                }
+            }
+
+            const functionResultsRequest = {
+                model: "gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o3-mini $1.10 -- dont use o3 use o1
+                input,
+                instructions: initalInstructions,
+                // previous_response_id: previousResponseId,
+                store: false, //Whether to store the generated model response for later retrieval via API. boolean | null;
+                user: "me", //unique id that can identify end user
+                tools,
+            };
+
+            console.log(`agent is on iteration ${circutBreaker} `);
+
+            followUpResponse = await createModelResponseRequest(
+                functionResultsRequest
+            );
+
+            modelOutput = followUpResponse.output;
+            hasFunctionCall = modelOutput.some(
+                (obj) => obj.type === "function_call"
+            );
+
+            circutBreaker++;
+            if (circutBreaker > 20) {
+                break;
             }
         }
 
         //TODO:do we need an intermidary step here where we can optionally process the results before sending back to gpt
 
-        functionResultsRequest.input =
-            "function call results: " + JSON.stringify(functionCallResults);
-
-        const finalResponse = await createModelResponseRequest(
-            functionResultsRequest
-        );
-
-        return finalResponse;
+        return followUpResponse;
     }
 }

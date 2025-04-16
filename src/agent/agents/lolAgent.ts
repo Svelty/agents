@@ -38,11 +38,7 @@ export const runLolAgent = async () => {
         user: "me", //unique id that can identify end user
     };
 
-    //@ts-ignore
-    const agentResults = agent.runFunctionCallingAgent(
-        agentRequest,
-        functionResultsRequest
-    );
+    const agentResults = agent.runFunctionCallingAgent("", "");
 
     return agentResults;
 };

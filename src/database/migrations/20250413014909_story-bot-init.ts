@@ -19,7 +19,7 @@ export async function up(knex: Knex): Promise<void> {
         table.integer("index").notNullable();
         table.string("text", 1000).notNullable();
         table.string("image_url", 2083);
-        table.text("image_prompt", "text");
+        table.text("description", "text");
         table.unique(["story_id", "index"]);
     });
 }

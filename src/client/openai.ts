@@ -7,14 +7,14 @@ dotenv.config();
 
 // Initialize the OpenAI client with the API key from the .env file
 const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+    apiKey: process.env.OPENAI_API_KEY,
 });
 
 export const createModelResponseRequest = async (
-  request: ResponseCreateParamsNonStreaming
+    request: ResponseCreateParamsNonStreaming
 ) => {
-  const response = await client.responses.create(request);
-  return response;
+    const response = await client.responses.create(request);
+    return response;
 };
 
 // {

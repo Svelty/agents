@@ -1,16 +1,17 @@
-import { text } from "express";
 import knex from "knex";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const pg = knex({
     client: "pg",
     connection: {
-        //   connectionString: config.DATABASE_URL,
-        host: "localhost", //config['DB_HOST'],
-        port: 5432, //config['DB_PORT'],
-        user: "postgres", //config['DB_USER'],
-        database: "story-bot", //config['DB_NAME'],
-        password: "postgres", // config['DB_PASSWORD'],
-        ssl: false, //config['DB_SSL'] ? { rejectUnauthorized: false } : false,
+        database: process.env.DB_DATABASE,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        host: process.env.DB_HOST,
+        port: parseInt(process.env.DB_PORT!),
+        ssl: process.env.DB_SSL == "true",
     },
 });
 
@@ -26,6 +27,7 @@ type StoryChunk = {
     text: string;
     index: number;
     image_url?: string;
+    description?: string;
 };
 
 export const createStory = async (
@@ -47,6 +49,24 @@ export const getStory = async (id: number): Promise<Story | undefined> => {
     return pg("story").where({ id }).first();
 };
 
+export const getAllStoryTitles = async () => {
+    return await pg("story").select("id", "title");
+};
+
+export const updateStoryTitle = async (
+    id: number,
+    title: string
+): Promise<void> => {
+    return await pg("story").where({ id }).update({ title });
+};
+
+export const updateStoryText = async (
+    id: number,
+    text: string
+): Promise<void> => {
+    return await pg("story").where({ id }).update({ text });
+};
+
 export const createStoryChunk = async (
     storyId: number,
     text: string,
@@ -63,17 +83,33 @@ export const createStoryChunk = async (
     return id;
 };
 
+export const updateStoryChunkText = async (
+    id: number,
+    text: string
+): Promise<void> => {
+    return await pg("story_chunks").where({ id }).update({ text });
+};
+
+export const updateStoryChunkDescription = async (
+    id: number,
+    description: string
+): Promise<void> => {
+    return await pg("story_chunks")
+        .where({ id })
+        .update({ description: description });
+};
+
 export const updateStoryChunkImage = async (
     chunkId: number,
     imageUrl: string,
     description?: string
 ): Promise<void> => {
     if (description) {
-        await pg("story_chunks")
+        return await pg("story_chunks")
             .where({ id: chunkId })
-            .update({ image_url: imageUrl, image_prompt: description });
+            .update({ image_url: imageUrl, description: description });
     } else {
-        await pg("story_chunks")
+        return await pg("story_chunks")
             .where({ id: chunkId })
             .update({ image_url: imageUrl });
     }

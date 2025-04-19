@@ -1,23 +1,36 @@
+import { ResponseInput } from "openai/resources/responses/responses";
 import { generateImage } from "../../client/image-gen";
 import {
     createStory,
     createStoryChunk,
+    getAllStoryTitles,
     getChunksForStory,
     getStory,
+    updateStoryChunkDescription,
     updateStoryChunkImage,
+    updateStoryChunkText,
+    updateStoryText,
+    updateStoryTitle,
 } from "../../data-access/storybotConnector";
 import { AgentService } from "../agent";
 
-export const runStoryBot = async () => {
+const storySessions: Map<string, ResponseInput> = new Map();
+
+export const runStoryBot = async (prompt: string, storySessionId: string) => {
+    let input: ResponseInput = [];
+
+    if (storySessions.has(storySessionId)) {
+        input = [...storySessions.get(storySessionId)!];
+    }
+    input.push({ role: "user", content: prompt });
+
     const agent = new AgentService();
 
-    //@ts-ignore
-    const createStoryTool = agent.addFunctionTool({
+    agent.addFunctionTool({
         type: "function",
         name: "createStory",
         description: "Saves a story to the story table in the story-bot db",
         strict: true,
-
         parameters: {
             type: "object",
             properties: {
@@ -36,14 +49,12 @@ export const runStoryBot = async () => {
         functionToCall: createStory,
     });
 
-    //@ts-ignore
-    const getStoryTool = agent.addFunctionTool({
+    agent.addFunctionTool({
         type: "function",
         name: "getStory",
         description:
             "gets a story saved to the story table in the story-bot db",
         strict: true,
-
         parameters: {
             type: "object",
             properties: {
@@ -58,14 +69,68 @@ export const runStoryBot = async () => {
         functionToCall: getStory,
     });
 
+    agent.addFunctionTool({
+        type: "function",
+        name: "updateStoryText",
+        description: "updates the text of a story by id",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                storyId: {
+                    type: "string",
+                    description: "The id of the story",
+                },
+                text: {
+                    type: "string",
+                    description: "the updated text of the story",
+                },
+            },
+            required: ["storyId", "text"],
+            additionalProperties: false,
+        },
+        functionToCall: updateStoryText,
+    });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "updateStoryTitle",
+        description: "updates the title of a story by id",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                storyId: {
+                    type: "string",
+                    description: "The id of the story",
+                },
+                title: {
+                    type: "string",
+                    description: "the updated title of the story",
+                },
+            },
+            required: ["storyId", "title"],
+            additionalProperties: false,
+        },
+        functionToCall: updateStoryTitle,
+    });
+
     //@ts-ignore
-    const createStoryChunksTool = agent.addFunctionTool({
+    agent.addFunctionTool({
+        type: "function",
+        name: "getAllStoryTitles",
+        description:
+            "gets a lsit of the titles and ids of all storys saved to the story table in the story-bot db",
+        strict: false,
+        functionToCall: getAllStoryTitles,
+    });
+
+    agent.addFunctionTool({
         type: "function",
         name: "createStoryChunks",
         description:
             "Saves the chunks of a story to the story-chunk table in the story-bot db", //max 280 char
         strict: true,
-
         parameters: {
             type: "object",
             properties: {
@@ -97,77 +162,11 @@ export const runStoryBot = async () => {
         },
     });
 
-    // agent.addFunctionTool({
-    //     type: "function",
-    //     name: "createImagesForAllChunks",
-    //     description:
-    //         "Creates images for all chunks of a story, saves the images to the file system and updates the story-chunk table with their location", //max 280 char
-    //     strict: true,
-
-    //     parameters: {
-    //         type: "object",
-    //         properties: {
-    //             storyId: {
-    //                 type: "number",
-    //                 description: "the id of the story",
-    //             },
-    //             prompt: {
-    //                 type: "string",
-    //                 description:
-    //                     "A base prompt that will be passed to the image generator with each chunk",
-    //             },
-    //         },
-    //         required: ["storyId", "prompt"],
-    //         additionalProperties: false,
-    //     },
-    //     functionToCall: async (storyId, prompt) => {
-    //         const chunks = await getChunksForStory(storyId);
-
-    //         const allImageLocations = [];
-    //         for (const chunk of chunks) {
-    //             const imageLocations = await generateImage({
-    //                 prompt: prompt + " : " + chunk.text,
-    //                 negativePrompt:
-    //                     "(embedding:unaestheticXLv31:0.8), low quality, watermark",
-    //                 baseModelName: "animagineXLV31_v31.safetensors", //"DreamShaper_8_pruned.safetensors", //"bluePencilXL_v050.safetensors",
-    //                 refinerModelName: "animagineXLV31_v31.safetensors", //"DreamShaper_8_pruned.safetensors", //"bluePencilXL_v050.safetensors",
-    //                 refinerSwitch: 0.667,
-    //                 imageSeed: "2234205261968679285",
-    //                 imageNumber: 2,
-    //                 performanceSelection: "Quality",
-    //                 styleSelections: [
-    //                     "Fooocus V2",
-    //                     "Fooocus Masterpiece",
-    //                     "SAI Enhance",
-    //                 ], //[], // Assuming this was meant to be an empty array
-    //                 aspectRatiosSelection: "1152×896",
-    //                 enablePreviewImages: false,
-    //                 loraParameters: [
-    //                     { model: "None", weight: 0 },
-    //                     { model: "None", weight: 0 },
-    //                     { model: "None", weight: 0 },
-    //                     { model: "None", weight: 0 },
-    //                     { model: "None", weight: 0 },
-    //                 ],
-    //             });
-
-    //             if (
-    //                 Array.isArray(imageLocations) &&
-    //                 imageLocations.length > 0
-    //             ) {
-    //                 updateStoryChunkImage(chunk.id!, imageLocations[0]);
-    //             }
-    //         }
-    //         return "success";
-    //     },
-    // });
-
     agent.addFunctionTool({
         type: "function",
         name: "getChunksForStory",
         description: "Gets all the chunks for a story", //max 280 char
         strict: true,
-
         parameters: {
             type: "object",
             properties: {
@@ -184,19 +183,60 @@ export const runStoryBot = async () => {
 
     agent.addFunctionTool({
         type: "function",
-        name: "createImagesForChunks",
-        description:
-            "Creates images for the chunks of a story, saves the images to the file system and updates the story-chunk table with their location", //max 280 char
+        name: "updateStoryChunkText",
+        description: "updates the text of a story chunk by id",
         strict: true,
-
         parameters: {
             type: "object",
             properties: {
-                storyId: {
-                    type: "number",
-                    description: "the id of the story",
+                chunkId: {
+                    type: "string",
+                    description: "The id of the story chunk",
                 },
-                prompts: {
+                text: {
+                    type: "string",
+                    description: "the updated text of the story chunk",
+                },
+            },
+            required: ["chunkId", "text"],
+            additionalProperties: false,
+        },
+        functionToCall: updateStoryChunkText,
+    });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "updateStoryChunkDescription",
+        description: "updates the description of a story chunk by id",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                chunkId: {
+                    type: "string",
+                    description: "The id of the story chunk",
+                },
+                description: {
+                    type: "string",
+                    description: "the updated description of the story chunk",
+                },
+            },
+            required: ["chunkId", "description"],
+            additionalProperties: false,
+        },
+        functionToCall: updateStoryChunkDescription,
+    });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "saveDescriptionsForAllChunksOfStory",
+        description:
+            "Saves the descriptions you create for all chunks of a story, the descriptions should focus on describing what you would see visually happening at that chunk of a story, descriptions will later be used by an image generation model so focus on building a prompt that can be used to create an image related to the story chunk, the image generator will not have the context of the story so each description must be self contained, do not use names instead describe the person or thing, you must make sure that the chunks are all related to the story, the array should be orded by the chunk index and include an entry for each chunk of the story ", //max 280 char
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                descriptions: {
                     type: "array",
                     description:
                         "An arry of a description of each chunk and the chunk id",
@@ -205,11 +245,12 @@ export const runStoryBot = async () => {
                         properties: {
                             id: {
                                 type: "number",
-                                description: "The ID of the chunk",
+                                description: "The ID of the story chunk",
                             },
                             description: {
                                 type: "string",
-                                description: "The description of the chunk",
+                                description:
+                                    "The description of the story chunk",
                             },
                         },
                         additionalProperties: false,
@@ -217,15 +258,76 @@ export const runStoryBot = async () => {
                     },
                 },
             },
-            required: ["storyId", "prompts"],
+            required: ["descriptions"],
             additionalProperties: false,
         },
-        functionToCall: async (storyId, prompts) => {
+        functionToCall: (descriptions) => {
+            for (const description of descriptions) {
+                updateStoryChunkDescription(
+                    description.id,
+                    description.description
+                );
+            }
+            return "success";
+        },
+    });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "saveDescriptionForStoryChunk",
+        description:
+            "Saves the description you create for a single chunk of a story, the description should focus on describing what you would see visually happening at that chunk of a story, descriptions will later be used by an image generation model so focus on building a prompt that can be used to create an image related to the story chunk, the image generator will not have the context of the story so each description must be self contained, do not use names instead describe the person or thing,", //max 280 char
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                id: {
+                    type: "number",
+                    description: "The ID of the story chunk",
+                },
+                description: {
+                    type: "string",
+                    description: "The description of the story chunk",
+                },
+            },
+            additionalProperties: false,
+            required: ["id", "description"],
+        },
+        functionToCall: (id, description) => {
+            updateStoryChunkDescription(id, description);
+            return "success";
+        },
+    });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "createImagesForAllChunksOfStory",
+        description:
+            "Creates images for all the chunks of a story, saves the images to the file system and updates the story-chunk table with their location, before calling this make sure that all the chunks for the story have descriptions", //max 280 char
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                storyId: {
+                    type: "number",
+                    description: "the id of the story",
+                },
+            },
+            required: ["storyId"],
+            additionalProperties: false,
+        },
+        functionToCall: async (storyId) => {
+            const chunks = await getChunksForStory(storyId);
+
+            if (!chunks.every((item) => item.description != null)) {
+                return "Some chunks for story do not have descriptions";
+            }
+
             const allImageLocations = [];
-            for (const prompt of prompts) {
+            for (const prompt of chunks) {
                 const imageLocations = await generateImage(
                     {
-                        prompt: prompt.description,
+                        prompt: prompt.description!,
                         negativePrompt:
                             "(embedding:unaestheticXLv31:0.8), low quality, watermark",
                         baseModelName:
@@ -240,7 +342,7 @@ export const runStoryBot = async () => {
                             "Fooocus V2",
                             "Fooocus Masterpiece",
                             "SAI Enhance",
-                        ], //[], // Assuming this was meant to be an empty array
+                        ],
                         aspectRatiosSelection: "1152×896",
                         enablePreviewImages: false,
                         loraParameters: [
@@ -258,62 +360,79 @@ export const runStoryBot = async () => {
                     Array.isArray(imageLocations) &&
                     imageLocations.length > 0
                 ) {
-                    updateStoryChunkImage(
-                        prompt.id!,
-                        imageLocations[0],
-                        prompt.description
-                    );
+                    updateStoryChunkImage(prompt.id!, imageLocations[0]);
                 }
             }
             return "success";
         },
     });
 
-    // const agentRequest = {
-    //     model: "gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o3-mini $1.10
-    //     input: ,
-    //     instructions:
-    //         "You are an author that write spicy romance sci fi short stories in the style of Linnea Sinclair",
-    //     previous_response_id: null,
-    //     store: false, //Whether to store the generated model response for later retrieval via API. boolean | null;
-    //     user: "me", //unique id that can identify end user
-    //     //@ts-ignore
-    //     tools: [createStoryTool],
-    // };
+    agent.addFunctionTool({
+        type: "function",
+        name: "createImageforChunk",
+        description:
+            "Creates an image for a story chunk, saves the image to the file system and updates the story-chunk table with its location", //max 280 char
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                chunkId: {
+                    type: "number",
+                    description: "the id of the story chunk",
+                },
+                description: {
+                    type: "string",
+                    description: "The description of the story chunk",
+                },
+            },
+            required: ["chunkId", "description"],
+            additionalProperties: false,
+        },
+        functionToCall: async (chunkId, description) => {
+            const imageLocations = await generateImage(
+                {
+                    prompt: description,
+                    negativePrompt:
+                        "(embedding:unaestheticXLv31:0.8), low quality, watermark",
+                    baseModelName: "dreamshaperXL_v21TurboDPMSDE.safetensors", //animagineXLV31_v31.safetensors", //"DreamShaper_8_pruned.safetensors", //"bluePencilXL_v050.safetensors",
+                    refinerModelName:
+                        "dreamshaperXL_v21TurboDPMSDE.safetensors", //animagineXLV31_v31.safetensors", //"DreamShaper_8_pruned.safetensors", //"bluePencilXL_v050.safetensors",
+                    refinerSwitch: 0.667,
+                    imageSeed: "2234205261968679285",
+                    imageNumber: 1,
+                    performanceSelection: "Quality",
+                    styleSelections: [
+                        "Fooocus V2",
+                        "Fooocus Masterpiece",
+                        "SAI Enhance",
+                    ],
+                    aspectRatiosSelection: "1152×896",
+                    enablePreviewImages: false,
+                    loraParameters: [
+                        { model: "None", weight: 0 },
+                        { model: "None", weight: 0 },
+                        { model: "None", weight: 0 },
+                        { model: "None", weight: 0 },
+                        { model: "None", weight: 0 },
+                    ],
+                },
+                `${chunkId}`
+            );
 
-    // const functionResultsRequest = {
-    //     model: "gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o3-mini $1.10 -- dont use o3 use o1
-    //     input: "",
-    //     instructions:
-    //         "Take this story and break it up into chunks of no longer than 250 characters, make sure each chunk can stand on its own",
-    //     // previous_response_id: firstRes.id,  -- i think i need to save response for this to work?
-    //     store: false, //Whether to store the generated model response for later retrieval via API. boolean | null;
-    //     user: "me", //unique id that can identify end user
-    // };
+            if (Array.isArray(imageLocations) && imageLocations.length > 0) {
+                updateStoryChunkImage(chunkId, imageLocations[0], description);
+            }
 
-    // const results = await agent.runFunctionCallingAgent(
-    //     "First, write a short story about two lovers on a distant planet far in the future then save it to the story db. " +
-    //         "Second, get that story from the db and break it into chunks of no longer than 250 characters making sure each chunk has only full sentences and makes sense on its own then save those chunks to the db. " +
-    //         "Third, get the chunks for the story and create a prompt describing each chunk that can be passed to an image generator along with the story text and then generate the images",
-    //     "You are an author that writes sci fi romance short stories"
-    // );
+            return "success";
+        },
+    });
 
     const results = await agent.runFunctionCallingAgent(
-        "First, write a short story about a battle between giant robots batteling giant lizards on a distant planet the robots have been sent by humans to concour the planet, then save it to the story db. " +
-            "Second, get that story from the db and break it into chunks of no longer than 250 characters making sure each chunk has only full sentences and makes sense on its own then save those chunks to the db. " +
-            "Third, get the chunks for the story and write a vidual description of each chunk then use those descriptions to generate images for each chunk",
-        "You are an author that writes epic sci fi battle short stories"
+        input,
+        "You are an ai assistant working on a short story project, You are also a talented author that writes sci fi short stories, make sure you save any story you write."
     );
 
-    //Ok so this succesfully generates a story and saves it to postgress, at this point i should return the story to a user interface where it can be edited
+    storySessions.set(storySessionId, results);
 
-    console.log(results);
-
-    //generate a story
-    //maybe an edit step
-    //break story into tweet size peices
-    //generate image for each part
-    //save story to DB for human review
-    //after human review get story by id from db and publish to twitter
-    //post to twitter
+    return results[results.length - 1];
 };

@@ -1,17 +1,19 @@
 import type { Knex } from "knex";
+import dotenv from "dotenv";
 
-// Update with your config settings.
+dotenv.config();
 
-const config: { [key: string]: Knex.Config } = {
+//TODO: config is duplicated in connector
+export const config: { [key: string]: Knex.Config } = {
     development: {
         client: "postgres",
         connection: {
-            database: "story-bot",
-            user: "postgres",
-            password: "postgres",
-            host: "localhost",
-            port: 5432,
-            ssl: false,
+            database: process.env.DB_DATABASE,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            host: process.env.DB_HOST,
+            port: parseInt(process.env.DB_PORT!),
+            ssl: process.env.DB_SSL == "true",
         },
         pool: {
             min: 2,
@@ -55,5 +57,3 @@ const config: { [key: string]: Knex.Config } = {
     //   }
     // }
 };
-
-module.exports = config;

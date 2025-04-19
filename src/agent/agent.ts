@@ -84,7 +84,9 @@ export class AgentService {
 
                     if (tool) {
                         //@ts-ignore
-                        const params = Object.keys(tool.parameters.properties);
+                        const params = tool?.parameters?.properties
+                            ? Object.keys(tool.parameters.properties)
+                            : [];
 
                         //@ts-ignore
                         const args: any[] = [];
@@ -136,8 +138,11 @@ export class AgentService {
             }
         }
 
+        //TODO: do i want to be saving the whole conversation including all the function calls or do i just want the final result?
+        const conversation = [...input, ...modelOutput];
+
         //TODO:do we need an intermidary step here where we can optionally process the results before sending back to gpt
 
-        return followUpResponse;
+        return conversation;
     }
 }

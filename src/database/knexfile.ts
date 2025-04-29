@@ -8,13 +8,21 @@ export const config: { [key: string]: Knex.Config } = {
     development: {
         client: "postgres",
         connection: {
-            database: process.env.DB_DATABASE,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            host: process.env.DB_HOST,
-            port: parseInt(process.env.DB_PORT!),
-            ssl: process.env.DB_SSL == "true",
+            database: "story-bot-2",
+            user: "postgres",
+            password: "postgres",
+            host: "localhost",
+            port: 5432,
+            ssl: false,
         },
+        // connection: {
+        //     database: process.env.DB_DATABASE,
+        //     user: process.env.DB_USER,
+        //     password: process.env.DB_PASSWORD,
+        //     host: process.env.DB_HOST,
+        //     port: parseInt(process.env.DB_PORT!),
+        //     ssl: process.env.DB_SSL == "true",
+        // },
         pool: {
             min: 2,
             max: 10,
@@ -57,3 +65,5 @@ export const config: { [key: string]: Knex.Config } = {
     //   }
     // }
 };
+
+export default config;

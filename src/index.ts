@@ -4,6 +4,12 @@ import session from "express-session";
 import { runLolAgent } from "./agent/agents/lolAgent";
 import { runSimpleAddingAgent } from "./agent/agents/testMathAgent";
 import { runStoryBot } from "./agent/agents/storybot";
+import { listCoins, listCoinsWithMarketData, ping } from "./client/coinGeko";
+import {
+    getNextUnreadMessageThread,
+    listUnreadMessages,
+    runEmailBot,
+} from "./agent/agents/emailLeadsReply";
 
 // const session = require('express-session');
 
@@ -82,54 +88,27 @@ app.listen(port, () => {
     console.log(`Example app listening on port ${port}`);
 });
 
-// createModelRequest();
-
-// console.log("uuuh");
-
 // (async function run() {
 //     // await createModelRequest();
-//     await runLolAgent();
+//     // const res = await ping();
+//     const res = await listCoinsWithMarketData();
+//     console.log(res);
 //     console.log("Model request completed");
 // })();
 
 // (async function run() {
 //     // await createModelRequest();
-//     await runSimpleAddingAgent();
-//     console.log("Model request completed");
+//     // const res = await ping();
+//     const res = await listUnreadMessages();
+//     console.log(res);
+//     console.log("request completed");
 // })();
 
-// (async function run() {
-//     // await createModelRequest();
-//     await runStoryBot();
-//     console.log("Model request completed");
-// })();
-
-// (async function run() {
-//     const imageLocations = await generateImage({
-//         prompt: "romantic scene looking out the window of a space station",
-//         negativePrompt:
-//             "(embedding:unaestheticXLv31:0.8), low quality, watermark",
-//         baseModelName: "bluePencilXL_v050.safetensors",
-//         refinerModelName: "bluePencilXL_v050.safetensors",
-//         refinerSwitch: 0.667,
-//         imageSeed: BigInt.asUintN(
-//             64,
-//             BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)) *
-//                 BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))
-//         ).toString(),
-//         imageNumber: 2,
-//         performanceSelection: "Quality",
-//         styleSelections: [], // Assuming this was meant to be an empty array
-//         aspectRatiosSelection: "1152×896",
-//         enablePreviewImages: false,
-//         loraParameters: [
-//             { model: "None", weight: 0 },
-//             { model: "None", weight: 0 },
-//             { model: "None", weight: 0 },
-//             { model: "None", weight: 0 },
-//             { model: "None", weight: 0 },
-//         ],
-//     });
-
-//     console.log(imageLocations);
-// })();
+(async function run() {
+    // await createModelRequest();
+    // const res = await ping();
+    // const res = await getNextUnreadMessageThread();
+    const res = await runEmailBot("", "");
+    console.log(res);
+    console.log("request completed");
+})();

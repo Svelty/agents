@@ -11,7 +11,7 @@ import {
     updateStoryChunkText,
     updateStoryText,
     updateStoryTitle,
-} from "../../data-access/storybotConnector";
+} from "../../database/dataAccess/storybotConnector";
 import { AgentService } from "../agent";
 
 const storySessions: Map<string, ResponseInput> = new Map();

@@ -340,24 +340,6 @@ const createCalendarEvent = async (
 
     const calendar = google.calendar({ version: "v3", auth });
 
-    // const event: calendar_v3.Schema$Event = {
-    //     summary: "Meeting with Bob",
-    //     location: "123 Main St",
-    //     description: "Discuss project status.",
-    //     start: {
-    //         dateTime: "2025-04-26T10:00:00-07:00", //(formatted according to RFC3339)
-    //         timeZone: "America/Vancouver",
-    //     },
-    //     end: {
-    //         dateTime: "2025-04-26T11:00:00-07:00",
-    //         timeZone: "America/Vancouver",
-    //     },
-    //     attendees: [
-    //         { email: "alice@example.com" },
-    //         { email: "charlie@example.com" },
-    //     ],
-    // };
-
     const event: calendar_v3.Schema$Event = {
         summary: title,
         location: location,
@@ -400,67 +382,7 @@ const createCalendarEvent = async (
     return res.data.htmlLink;
 };
 
-const runReplyBotLoop = async (agent: AgentService) => {
-    let nextMessageThread = await getNextUnreadMessageThread();
-
-    while (nextMessageThread.thread != null) {
-        const content = {
-            threadText: getPlainTextFromThread(nextMessageThread.thread),
-            replyAddress: getAllReplyAddresses(nextMessageThread.thread),
-            lastMessageId: getLastMessageId(nextMessageThread.thread),
-            threadId: nextMessageThread.thread.data.id,
-            subject: getSubject(nextMessageThread.thread),
-        };
-
-        const res = await agent.runFunctionCallingAgent(
-            "this is a thread of emails or a single email determine if the last message in the thread needs to be replied to (not a marketing or account email) then if it is write a response and reply to the email" +
-                JSON.stringify(content),
-            `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails, sign emails with name`
-        );
-
-        console.log(res);
-
-        //todo: check for success
-        if (
-            res &&
-            nextMessageThread.thread?.data?.messages &&
-            nextMessageThread.thread?.data?.messages.length
-        ) {
-            for (const message of nextMessageThread.thread?.data?.messages)
-                if (message.labelIds?.includes("UNREAD")) {
-                    await markMessageAsRead(message.id!);
-                }
-        }
-
-        nextMessageThread = await getNextUnreadMessageThread();
-    }
-};
-
-const agentSessions: Map<string, ResponseInput> = new Map();
-
-let isRunning = false;
-
-export const runEmailBot = async (prompt: string, agentSessionId: string) => {
-    if (isRunning) return;
-    isRunning = true; //TODO: this needs try/finnaly logic
-
-    let input: ResponseInput = [];
-
-    if (agentSessions.has(agentSessionId)) {
-        input = [...agentSessions.get(agentSessionId)!];
-    }
-    input.push({ role: "user", content: prompt });
-
-    const agent = new AgentService();
-
-    //get unread emails
-
-    //get email by id
-
-    //get email thread --how does this work?
-
-    //send email
-
+const registerReplyBotAgentTools = (agent: AgentService) => {
     //@ts-ignore
     agent.addFunctionTool({
         type: "function",
@@ -604,28 +526,91 @@ export const runEmailBot = async (prompt: string, agentSessionId: string) => {
         },
         functionToCall: createCalendarEvent,
     });
+};
 
-    const res = await agent.runFunctionCallingAgent(
-        `it is currently April 26, 2025 can you schedual a call for next wednesday at 10:15 with`,
-        `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails, sign emails with name. You also manage the calendar schedualing intro calls`
-    );
+const runReplyBotLoop = async () => {
+    const agent = new AgentService();
 
-    console.log(res);
+    registerReplyBotAgentTools(agent);
 
-    //TODO: need to add a human in the loop option for the reply bot
-    //this would invole saving the reply in an unapproved state
-    //need multiple flags "approved", "sentForApproval"
-    //run a loop that gets all replies that are both unapproved an not sentForApproval then send them to me via text or email (or any interface really)
+    let nextMessageThread = await getNextUnreadMessageThread();
 
-    //3 loops?
-    // read incoming emails, create replies for those it thinks needs them and save those replies and incoming to db - maybe initial reply does not need approval but confirming a schedualed meeting does
-    // send incoming to approver
-    // reply to approved
+    while (nextMessageThread.thread != null) {
+        const content = {
+            threadText: getPlainTextFromThread(nextMessageThread.thread),
+            replyAddress: getAllReplyAddresses(nextMessageThread.thread),
+            lastMessageId: getLastMessageId(nextMessageThread.thread),
+            threadId: nextMessageThread.thread.data.id,
+            subject: getSubject(nextMessageThread.thread),
+        };
 
-    //will need to catagorise incoming emails as leads or schedualing or other
-    // await runReplyBotLoop(agent);
+        //maybe the only job of the inital agent is to read emails then save them to the db as either "lead", "schedualing" or "other"
+        const res = await agent.runFunctionCallingAgent(
+            "this is a thread of emails or a single email determine if the last message in the thread needs to be replied to (not a marketing or account email) then if it is write a response and reply to the email. If it is a customer interested in our services check the calendar and offer to set up a 15 minute meeting on the next day with an available timeslot" +
+                JSON.stringify(content),
+            `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of no reply emails. Your main job is to reply to potential leads that are interested in our services and attempt to schedual a call with them, be polite but breif. Only answer questions if you know the answer.  sign emails with MB`
+        );
 
-    isRunning = false;
+        console.log(res);
+
+        //todo: check for success
+        if (
+            res &&
+            nextMessageThread.thread?.data?.messages &&
+            nextMessageThread.thread?.data?.messages.length
+        ) {
+            for (const message of nextMessageThread.thread?.data?.messages)
+                if (message.labelIds?.includes("UNREAD")) {
+                    await markMessageAsRead(message.id!);
+                }
+        }
+
+        nextMessageThread = await getNextUnreadMessageThread();
+    }
+};
+
+const agentSessions: Map<string, ResponseInput> = new Map();
+
+let isRunning = false;
+
+export const runEmailBot = async (prompt: string, agentSessionId: string) => {
+    if (isRunning) return;
+    try {
+        isRunning = true; //TODO: this needs try/finnaly logic
+
+        let input: ResponseInput = [];
+
+        if (agentSessions.has(agentSessionId)) {
+            input = [...agentSessions.get(agentSessionId)!];
+        }
+        input.push({ role: "user", content: prompt });
+
+        const agent = new AgentService();
+
+        registerReplyBotAgentTools(agent);
+
+        const res = await agent.runFunctionCallingAgent(
+            `it is currently April 26, 2025 can you schedual a call for next wednesday at 10:15 with`,
+            `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails, sign emails with name. You also manage the calendar schedualing intro calls`
+        );
+
+        console.log(res);
+
+        //TODO: need to add a human in the loop option for the reply bot
+        //this would invole saving the reply in an unapproved state
+        //need multiple flags "approved", "sentForApproval"
+        //run a loop that gets all replies that are both unapproved an not sentForApproval then send them to me via text or email (or any interface really)
+
+        //3 loops?
+        // read incoming emails, create replies for those it thinks needs them and save those replies and incoming to db - maybe initial reply does not need approval but confirming a schedualed meeting does
+        // send incoming to approver
+        // reply to approved
+
+        //will need to catagorise incoming emails as leads or schedualing or other
+        // await runReplyBotLoop(agent);
+    } finally {
+        isRunning = false;
+    }
 
     return "all emails replied to";
 };
@@ -633,6 +618,6 @@ export const runEmailBot = async (prompt: string, agentSessionId: string) => {
 //TODO: thinking about adding a "verifier" to the Agent service,
 //the verifier if enabled would check the function calling llm responses before the function is called to make sure that the function is being used correctly
 
-// cron.schedule("*/5 * * * *", () => {
-//     runEmailBot("", "");
-// });
+cron.schedule("*/1 * * * *", () => {
+    runReplyBotLoop();
+});

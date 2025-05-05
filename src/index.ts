@@ -1,3 +1,4 @@
+import { scheduleBots } from "./agent/agents/emailLeadsReply";
 import db from "./database/db";
 import { startServer } from "./server";
 
@@ -7,6 +8,8 @@ import { startServer } from "./server";
         console.log("Migrations complete.");
 
         startServer();
+
+        scheduleBots();
     } catch (err) {
         console.error("Migration error:", err);
         process.exit(1);

@@ -12,376 +12,32 @@
 
 //personal gmail cannot use the api so there will have to be a step where we manually log in
 
-import fs from "fs/promises";
-import readline from "readline/promises";
-import { google, gmail_v1, calendar_v3 } from "googleapis";
-import { OAuth2Client } from "google-auth-library";
 import { ResponseInput } from "openai/resources/responses/responses";
 import { AgentService } from "../agent";
-import dotenv from "dotenv";
 
 //@ts-ignore
 import cron from "node-cron";
-import { randomUUID } from "crypto";
-
-dotenv.config();
-
-const GMAIL_ADDRESS = process.env.GMAIL_ADDRESS;
-
-const SCOPES = [
-    "https://www.googleapis.com/auth/gmail.modify",
-    "https://www.googleapis.com/auth/calendar.events",
-];
-const TOKEN_PATH = "token.json";
-const CREDENTIALS_PATH = "credentials.json";
-
-type Credentials = {
-    installed: {
-        client_id: string;
-        client_secret: string;
-        redirect_uris: string[];
-    };
-};
-
-const loadCredentials = async (): Promise<Credentials["installed"]> => {
-    const content = await fs.readFile(CREDENTIALS_PATH, "utf-8");
-    return JSON.parse(content).web;
-};
-
-const saveToken = async (token: any): Promise<void> => {
-    await fs.writeFile(TOKEN_PATH, JSON.stringify(token));
-};
-
-const getOAuthClient = async (): Promise<OAuth2Client> => {
-    const { client_id, client_secret, redirect_uris } = await loadCredentials();
-    const oAuth2Client = new google.auth.OAuth2(
-        client_id,
-        client_secret,
-        redirect_uris[0]
-    );
-
-    try {
-        const token = JSON.parse(await fs.readFile(TOKEN_PATH, "utf-8"));
-        oAuth2Client.setCredentials(token);
-    } catch {
-        const authUrl = oAuth2Client.generateAuthUrl({
-            access_type: "offline",
-            scope: SCOPES,
-        });
-        console.log("Authorize this app by visiting:", authUrl);
-
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout,
-        });
-        const code = await rl.question("Enter the code: ");
-        rl.close();
-
-        const { tokens } = await oAuth2Client.getToken(code);
-        oAuth2Client.setCredentials(tokens);
-        await saveToken(tokens);
-    }
-
-    return oAuth2Client;
-};
-
-export const listUnreadMessages = async () => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    // const {
-    //     data: { messages = [] },
-    // } =
-    const messages = await gmail.users.messages.list({
-        userId: "me",
-        maxResults: 10,
-        q: "is:unread",
-    });
-
-    const unreadMessages = [];
-
-    for (const { id } of messages.data.messages!) {
-        if (!id) continue; // skip if id is null or undefined
-
-        const message = await gmail.users.messages.get({ userId: "me", id });
-
-        // const isUnread = message.data.labelIds?.includes("UNREAD");
-        // if (isUnread) {
-        const subjectHeader = message.data.payload?.headers?.find(
-            (h) => h.name === "Subject"
-        );
-        console.log("Subject:", subjectHeader?.value || "(no subject)");
-        unreadMessages.push(message);
-        // }
-    }
-
-    return unreadMessages;
-
-    // messages.data.nextPageToken
-};
-
-const getPlainTextFromThread = (thread: any) => {
-    const messages = thread.data.messages;
-    const texts = [];
-
-    for (const msg of messages) {
-        const headers = msg.payload.headers;
-        const from =
-            headers.find((h: any) => h.name.toLowerCase() === "from")?.value ||
-            "Unknown Sender";
-        const date =
-            headers.find((h: any) => h.name.toLowerCase() === "date")?.value ||
-            "Unknown Date";
-
-        const parts = msg.payload.parts || [msg.payload];
-        for (const part of parts) {
-            if (part.mimeType === "text/plain" && part.body?.data) {
-                const decoded = Buffer.from(part.body.data, "base64")
-                    .toString("utf-8")
-                    .trim();
-                texts.push(`---\nFrom: ${from}\nDate: ${date}\n\n${decoded}`);
-            }
-        }
-    }
-
-    return texts.join("\n\n");
-};
-
-const getReplyAddresses = (message: any) => {
-    const headers = message.payload.headers;
-    const from = headers.find(
-        (h: any) => h.name.toLowerCase() === "from"
-    )?.value;
-    const replyTo = headers.find(
-        (h: any) => h.name.toLowerCase() === "reply-to"
-    )?.value;
-
-    // Prefer Reply-To if available, fallback to From
-    return replyTo || from;
-};
-
-const getAllReplyAddresses = (thread: any) => {
-    const addresses = new Set();
-
-    for (const msg of thread.data.messages) {
-        const addr = getReplyAddresses(msg);
-        if (addr) addresses.add(addr);
-    }
-
-    return Array.from(addresses);
-};
-
-const getLastMessageId = (thread: any) => {
-    const messages = thread.data.messages;
-    const lastMessage = messages[messages.length - 1];
-    return lastMessage.payload.headers.find(
-        (h: any) => h.name.toLowerCase() === "message-id"
-    )?.value;
-};
-
-const getSubject = (thread: any) => {
-    const firstMessage = thread.data.messages[0];
-    const subjectHeader = firstMessage.payload.headers.find(
-        (h: any) => h.name.toLowerCase() === "subject"
-    );
-    return subjectHeader?.value || "";
-};
-
-export const getNextUnreadMessageThread = async () => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    const messages = await gmail.users.messages.list({
-        userId: "me",
-        maxResults: 1,
-        q: "is:unread",
-    });
-
-    let thread = null;
-
-    if (messages.data.messages) {
-        for (const { id, threadId } of messages.data.messages) {
-            if (!id || !threadId) continue; // skip if id is null or undefined
-
-            thread = await gmail.users.threads.get({
-                userId: "me",
-                id: threadId,
-            });
-        }
-    }
-
-    return {
-        thread,
-        nextPageToken: messages.data.nextPageToken,
-    };
-};
-
-export const getMessageThread = async (threadId: string) => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    return await gmail.users.threads.get({ userId: "me", id: threadId });
-};
-
-const markMessageAsRead = async (id: string) => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    await gmail.users.messages.modify({
-        userId: "me",
-        id,
-        requestBody: {
-            removeLabelIds: ["UNREAD"],
-        },
-    });
-};
-
-export const sendEmail = async (to: string, subject: string, body: string) => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    const rawMessage = [
-        `To: ${to}`,
-        `Subject: ${subject}`,
-        "Content-Type: text/plain; charset=utf-8",
-        "",
-        body,
-    ].join("\n");
-
-    const encodedMessage = Buffer.from(rawMessage)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-
-    await gmail.users.messages.send({
-        userId: "me",
-        requestBody: {
-            raw: encodedMessage,
-        },
-    });
-
-    return "success";
-};
-
-export const sendEmailReply = async (
-    to: string,
-    subject: string,
-    body: string,
-    lastMessageId: string,
-    threadId: string
-) => {
-    const auth = await getOAuthClient();
-    const gmail = google.gmail({ version: "v1", auth });
-
-    const rawMessage = [
-        `To: ${to}`,
-        `Subject: ${subject}`,
-        `In-Reply-To: ${lastMessageId}`,
-        `References: ${lastMessageId}`,
-        "Content-Type: text/plain; charset=utf-8",
-        "",
-        body,
-    ].join("\n");
-
-    const encodedMessage = Buffer.from(rawMessage)
-        .toString("base64")
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-
-    await gmail.users.messages.send({
-        userId: "me",
-        requestBody: {
-            raw: encodedMessage,
-            threadId,
-        },
-    });
-
-    return "success";
-};
-
-const listCalendarEvents = async () => {
-    const auth = await getOAuthClient();
-
-    const calendar = google.calendar({ version: "v3", auth });
-
-    // List events
-    const res = await calendar.events.list({
-        calendarId: "primary",
-        timeMin: new Date().toISOString(),
-        maxResults: 10,
-        singleEvents: true,
-        orderBy: "startTime",
-    });
-
-    console.log(res.data.items);
-
-    return res.data.items;
-};
-
-//chat-gpt generated
-function isValidRFC3339WithTimezone(s: string): boolean {
-    const rfc3339Regex =
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?([+-]\d{2}:\d{2}|Z)$/;
-    return rfc3339Regex.test(s);
-}
-
-const createCalendarEvent = async (
-    title: string,
-    location: string,
-    description: string,
-    startTime: string,
-    endTime: string,
-    attendees: string[],
-    includeMeetLink: boolean
-) => {
-    const auth = await getOAuthClient();
-
-    const calendar = google.calendar({ version: "v3", auth });
-
-    const event: calendar_v3.Schema$Event = {
-        summary: title,
-        location: location,
-        description: description,
-        start: {
-            dateTime: startTime, //(formatted according to RFC3339)
-            timeZone: "America/Vancouver",
-        },
-        end: {
-            dateTime: endTime,
-            timeZone: "America/Vancouver",
-        },
-        attendees: attendees.map((attendee) => ({ email: attendee })),
-    };
-
-    let requestBody = {};
-    if (includeMeetLink) {
-        requestBody = {
-            ...event,
-            conferenceData: {
-                createRequest: {
-                    requestId: randomUUID(), // must be unique for each request
-                    conferenceSolutionKey: { type: "hangoutsMeet" },
-                },
-            },
-        };
-    } else {
-        requestBody = event;
-    }
-
-    const res = await calendar.events.insert({
-        calendarId: "primary",
-        requestBody,
-        sendUpdates: "all",
-        conferenceDataVersion: 1,
-    });
-
-    console.log(res.data.htmlLink);
-
-    return res.data.htmlLink;
-};
-
+import {
+    createCalendarEvent,
+    getAllReplyAddresses,
+    getLastMessageId,
+    getNextUnreadMessageThread,
+    getPlainTextFromThread,
+    getSubject,
+    GMAIL_ADDRESS,
+    listCalendarEvents,
+    listUnreadMessages,
+    markMessageAsRead,
+    sendEmail,
+    sendEmailReply,
+} from "../../service/googleService";
+import {
+    createMessage,
+    getAllUnrepliedMessages,
+    markMessageReplied,
+} from "../../database/dataAccess/emailReplyBotConnector";
+
+//todo: move tool definitions to an object, then they can be inported and regiested for each tool
 const registerReplyBotAgentTools = (agent: AgentService) => {
     //@ts-ignore
     agent.addFunctionTool({
@@ -526,46 +182,196 @@ const registerReplyBotAgentTools = (agent: AgentService) => {
         },
         functionToCall: createCalendarEvent,
     });
+
+    agent.addFunctionTool({
+        type: "function",
+        name: "saveMessageToDb",
+        description: "saves an email message to the database",
+        strict: true,
+        parameters: {
+            type: "object",
+            properties: {
+                threadText: {
+                    type: "string",
+                    description:
+                        "the text content of the email message or email message thread",
+                },
+                subject: {
+                    type: "string",
+                    description:
+                        "The subject line of an email is a brief summary or title that tells the recipient what the email is about. It should be clear, concise, and relevant to the content of the message to encourage the recipient to open it.",
+                },
+                replyAddress: {
+                    type: "string",
+                    description:
+                        "the email address or strigified list of email addresses that a reply can be sent to",
+                },
+                lastMessageId: {
+                    type: "string",
+                    description: "the id of the last message in the thread",
+                },
+                threadId: {
+                    type: "string",
+                    description: "the id of the email message thread",
+                },
+                messageType: {
+                    type: "string",
+                    enum: ["lead", "scheduleRequest", "other"],
+                    description:
+                        "how this message should be classified in our internal system.",
+                },
+            },
+            required: [
+                "threadText",
+                "subject",
+                "replyAddress",
+                "lastMessageId",
+                "threadId",
+                "messageType",
+            ],
+            additionalProperties: false,
+        },
+        functionToCall: async (
+            threadText: string,
+            subject: string,
+            replyAddress: string,
+            lastMessageId: string,
+            threadId: string,
+            messageType: string
+        ) => {
+            const message = {
+                thread_text:
+                    threadText.length < 5000
+                        ? threadText
+                        : threadText.substring(5000),
+                is_thread_text_truncated:
+                    threadText.length < 5000 ? false : true,
+                reply_address: replyAddress,
+                last_message_id: lastMessageId,
+                thread_id: threadId,
+                subject: subject,
+                message_type: messageType,
+                is_replied_to: false,
+            };
+            return await createMessage(message);
+        },
+    });
 };
 
-const runReplyBotLoop = async () => {
-    const agent = new AgentService();
+let isInboxBotLoopRunning = false;
 
-    registerReplyBotAgentTools(agent);
+const runInboxBot = async () => {
+    if (isInboxBotLoopRunning) return;
+    try {
+        isInboxBotLoopRunning = true;
+        const agent = new AgentService();
 
-    let nextMessageThread = await getNextUnreadMessageThread();
+        registerReplyBotAgentTools(agent);
 
-    while (nextMessageThread.thread != null) {
-        const content = {
-            threadText: getPlainTextFromThread(nextMessageThread.thread),
-            replyAddress: getAllReplyAddresses(nextMessageThread.thread),
-            lastMessageId: getLastMessageId(nextMessageThread.thread),
-            threadId: nextMessageThread.thread.data.id,
-            subject: getSubject(nextMessageThread.thread),
-        };
+        let nextMessageThread = await getNextUnreadMessageThread();
 
-        //maybe the only job of the inital agent is to read emails then save them to the db as either "lead", "schedualing" or "other"
-        const res = await agent.runFunctionCallingAgent(
-            "this is a thread of emails or a single email determine if the last message in the thread needs to be replied to (not a marketing or account email) then if it is write a response and reply to the email. If it is a customer interested in our services check the calendar and offer to set up a 15 minute meeting on the next day with an available timeslot" +
-                JSON.stringify(content),
-            `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of no reply emails. Your main job is to reply to potential leads that are interested in our services and attempt to schedual a call with them, be polite but breif. Only answer questions if you know the answer.  sign emails with MB`
-        );
+        while (nextMessageThread.thread != null) {
+            const content = {
+                threadText: getPlainTextFromThread(nextMessageThread.thread),
+                replyAddress: getAllReplyAddresses(nextMessageThread.thread),
+                lastMessageId: getLastMessageId(nextMessageThread.thread),
+                threadId: nextMessageThread.thread.data.id,
+                subject: getSubject(nextMessageThread.thread),
+            };
 
-        console.log(res);
+            //maybe the only job of the inital agent is to read emails then save them to the db as either "lead", "schedualing" or "other"
+            const res = await agent.runFunctionCallingAgent(
+                "this is a thread of emails or a single email determine if the last message in the thread needs to be replied to (not a marketing or account email) then if it does save the message to our database. You will need to determine if the message is a lead, scheduleRequest or other messageType. Leads are any message asking about our services, if someone is reaching out for the first time asking to schedual a meeting it is a leed, scheduleRequests are messages that confirm a specific meeting time or wish to adjust the time of an already schedualed meeting, other is for messages that don't fit either but you still think we should reply to. Accepted calendar invites do not need responding to." +
+                    JSON.stringify(content),
+                `you are an agent that manages incoming emails for ${GMAIL_ADDRESS}, your job is to sort out valid emails that require a response (so exclude marketing emails, chain emails, account emails or other types of no reply emails). Your must determine the type of incoming emails and save them to our database so that they can be replied to`
+            );
 
-        //todo: check for success
-        if (
-            res &&
-            nextMessageThread.thread?.data?.messages &&
-            nextMessageThread.thread?.data?.messages.length
-        ) {
-            for (const message of nextMessageThread.thread?.data?.messages)
-                if (message.labelIds?.includes("UNREAD")) {
-                    await markMessageAsRead(message.id!);
-                }
+            console.log(res);
+
+            //todo: check for success
+            if (
+                res &&
+                nextMessageThread.thread?.data?.messages &&
+                nextMessageThread.thread?.data?.messages.length
+            ) {
+                for (const message of nextMessageThread.thread?.data?.messages)
+                    if (message.labelIds?.includes("UNREAD")) {
+                        await markMessageAsRead(message.id!);
+                    }
+            }
+
+            nextMessageThread = await getNextUnreadMessageThread();
         }
+    } finally {
+        isInboxBotLoopRunning = false;
+    }
+};
 
-        nextMessageThread = await getNextUnreadMessageThread();
+let isReplyBotLoopRunning = false;
+
+const runReplyBot = async () => {
+    if (isReplyBotLoopRunning) return;
+    try {
+        isReplyBotLoopRunning = true;
+        const agent = new AgentService();
+
+        registerReplyBotAgentTools(agent);
+
+        const unrepliedMessages = await getAllUnrepliedMessages();
+
+        const dateString = new Date().toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+        });
+
+        const dateTime = new Date().toLocaleString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: true,
+            timeZoneName: "short",
+        });
+
+        for (const message of unrepliedMessages) {
+            if (message.message_type == "lead") {
+                const res = await agent.runFunctionCallingAgent(
+                    `This email message was catagorised as a lead, write a reply email thanking them for reaching out and offer to schedual a 15 minuite introductory meeting in the next available time slot at least one buisness day in the future (today is ${dateString}). Do not offer to schedual meetings on weekends or holidays. Only schedual meetings between 10am and 4pm and make sure you check the calendar for available times. Do not offer to book a meeting in a time slot that already has an event. Try to offer 2 available times to each lead. (EXAMPLE: "Are you available for an introductory call either wednesday at 2:15 or thursday at 10am?") You are not sending meeting invites at this time, that will be done later, only suggesting potential meeting times. ` +
+                        JSON.stringify(message),
+                    `you are an agent that replies to email messages for ${GMAIL_ADDRESS}, your main job is to reply to incoming leads and offer to schedual meetings with potential customers.  You only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails. Sign emails with MB.`
+                );
+
+                console.log(res);
+
+                //TODO: eventually this will be done by the agent, will also need to add "escalation options" for the agent if it does not feel like it can offer a reply
+                await markMessageReplied(message.id!);
+            } else if (message.message_type == "scheduleRequest") {
+                const res = await agent.runFunctionCallingAgent(
+                    `This email message was catagorised as a schedule request, check that the date and time for the requested meeting is in the future (it is ${dateTime}). Make sure you check the calendar before scheduling a new meeting. Meetings can be schedualed between 10am and 4pm on buisness days. Do not double book events in a time slot. If a meeting time that a customer has requested is not available polietly offer 2 available times ie. "Unfortunatly that time is not avaialble would you be able to do either wednesday at 2:15 or thursday at 10am?" If you are scheduling a meeting make sure you send both the calendar invite and a confirmation email.` +
+                        JSON.stringify(message),
+                    `you are an agent that replies to email messages for ${GMAIL_ADDRESS}, your main job is to reply to schedualing requests and send meeting invites to potential customers.  You only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails. Sign emails with MB. All meetings should be scheduled in the Vancouver/America timezone (either PST OR PDT depending on the time of year). Double check that you are getting the date and times correct, there is no room for error here.`
+                );
+
+                console.log(res);
+
+                await markMessageReplied(message.id!);
+            } else {
+                const res = await agent.runFunctionCallingAgent(
+                    `This email message was catagorised as other but the inbox agent stil felt that it should be replied to (not a lead or scheduleRequest). Determine if this email does need a response and if it does write and send one. ` +
+                        JSON.stringify(message),
+                    `you are an agent that replies to email messages for ${GMAIL_ADDRESS}, your main job is to reply to leads and schedualing requests from potential customers.  You only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails. Sign emails with MB.`
+                );
+
+                console.log(res);
+
+                await markMessageReplied(message.id!);
+            }
+        }
+    } finally {
+        isReplyBotLoopRunning = false;
     }
 };
 
@@ -589,12 +395,12 @@ export const runEmailBot = async (prompt: string, agentSessionId: string) => {
 
         registerReplyBotAgentTools(agent);
 
-        const res = await agent.runFunctionCallingAgent(
-            `it is currently April 26, 2025 can you schedual a call for next wednesday at 10:15 with`,
-            `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails, sign emails with name. You also manage the calendar schedualing intro calls`
-        );
+        // const res = await agent.runFunctionCallingAgent(
+        //     `it is currently April 26, 2025 can you schedual a call for next wednesday at 10:15 with`,
+        //     `you are an agent that manages an email inbox for ${GMAIL_ADDRESS}, you only reply to valid emails that require a response not to marketing emails, chain emails, account emails or other types of non personal emails, sign emails with name. You also manage the calendar schedualing intro calls`
+        // );
 
-        console.log(res);
+        // console.log(res);
 
         //TODO: need to add a human in the loop option for the reply bot
         //this would invole saving the reply in an unapproved state
@@ -607,7 +413,7 @@ export const runEmailBot = async (prompt: string, agentSessionId: string) => {
         // reply to approved
 
         //will need to catagorise incoming emails as leads or schedualing or other
-        // await runReplyBotLoop(agent);
+        // await runInboxBotloop(agent);
     } finally {
         isRunning = false;
     }
@@ -618,6 +424,17 @@ export const runEmailBot = async (prompt: string, agentSessionId: string) => {
 //TODO: thinking about adding a "verifier" to the Agent service,
 //the verifier if enabled would check the function calling llm responses before the function is called to make sure that the function is being used correctly
 
-cron.schedule("*/1 * * * *", () => {
-    runReplyBotLoop();
-});
+export const scheduleBots = () => {
+    console.log("scheduling bots");
+    cron.schedule("*/2 * * * *", async () => {
+        console.log("running reply inbox bot");
+        await runInboxBot();
+        console.log("running reply bot");
+        await runReplyBot();
+    });
+
+    //TODO: having two seperate crons doens't work... for javascript reasons?
+    // cron.schedule("*/2 * * * *", async () => {
+    //     await runInboxBot();
+    // });
+};

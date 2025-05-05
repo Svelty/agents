@@ -3,7 +3,7 @@ import type { Knex } from "knex";
 export async function up(knex: Knex): Promise<void> {
     await knex.schema.createTable("messages", function (table) {
         table.increments("id").primary();
-        table.string("thread_text", 1000); // small text snippet
+        table.text("thread_text"); // small text snippet
         table
             .boolean("is_thread_text_truncated")
             .notNullable()

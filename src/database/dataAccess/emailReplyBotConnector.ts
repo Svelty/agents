@@ -27,6 +27,14 @@ export const getMessage = async (id: number): Promise<Message | undefined> => {
     return db("messages").where({ id }).first();
 };
 
+export const getAllMessages = async (): Promise<Message[]> => {
+    return db("messages").select();
+};
+
+export const getAllUnrepliedMessages = async (): Promise<Message[]> => {
+    return db("messages").where({ is_replied_to: false }).select();
+};
+
 export const markMessageReplied = async (id: number): Promise<void> => {
     return await db("messages")
         .where({ id })

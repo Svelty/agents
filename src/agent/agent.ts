@@ -55,7 +55,7 @@ export class AgentService {
         });
 
         const request = {
-            model: "o4-mini", //"gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o4-mini $1.10
+            model: "gpt-4.1", //"o4-mini",   //"gpt-4o" $2.50, o4-mini $1.10, gpt-4.1 $2.00
             input,
             instructions: initalInstructions,
             previous_response_id: null,

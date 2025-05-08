@@ -368,4 +368,61 @@ export const createCalendarEvent = async (
     return res.data.htmlLink;
 };
 
+export const updateCalendarEvent = async (
+    eventId: string,
+    title: string,
+    location: string,
+    description: string,
+    startTime: string,
+    endTime: string,
+    attendees: string[],
+    includeMeetLink: boolean
+) => {
+    const auth = await getOAuthClient();
+
+    const calendar = google.calendar({ version: "v3", auth });
+
+    const event: calendar_v3.Schema$Event = {
+        summary: title,
+        location: location,
+        description: description,
+        start: {
+            dateTime: startTime,
+            timeZone: "America/Vancouver",
+        },
+        end: {
+            dateTime: endTime,
+            timeZone: "America/Vancouver",
+        },
+        attendees: attendees.map((email) => ({ email })),
+    };
+
+    let requestBody = {};
+    if (includeMeetLink) {
+        requestBody = {
+            ...event,
+            conferenceData: {
+                createRequest: {
+                    requestId: randomUUID(),
+                    conferenceSolutionKey: { type: "hangoutsMeet" },
+                },
+            },
+        };
+    } else {
+        requestBody = event;
+    }
+
+    const res = await calendar.events.update({
+        calendarId: "primary",
+        eventId,
+        requestBody,
+        sendUpdates: "all",
+        conferenceDataVersion: 1,
+    });
+
+    console.log(res.data.htmlLink);
+
+    return res.data.htmlLink;
+};
+
 //TODO: add an update calendar even function

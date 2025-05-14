@@ -1,4 +1,5 @@
 import * as chrono from "chrono-node";
+import { DateTime } from "luxon";
 import { AgentService } from "../agent";
 
 export const extractAndNormaliseDates = async (text: string) => {
@@ -8,7 +9,7 @@ export const extractAndNormaliseDates = async (text: string) => {
         type: "function",
         name: "normalizeDatetimes",
         description:
-            "Convert natural language datetime phrases into ISO 8601 format (YYYY-MM-DD HH:mm) using a reference date.",
+            "Convert natural language datetime phrases into RFC3339 format (YYYY-MM-DDTHH:mm:ss±HH:MM) using a reference date.",
         strict: true,
         parameters: {
             type: "object",
@@ -64,9 +65,9 @@ export const extractAndNormaliseDates = async (text: string) => {
 
     const res = await agent.runFunctionCallingAgent(
         `You are a date and time normalization assistant.
-        Your task is to detect and normalize all natural language date and time expressions in the following email. Replace each expression with a standardized ISO 8601 format:
+        Your task is to detect and normalize all natural language date and time expressions in the following email. Replace each expression with a standardized RFC3339 format:
         - Use **YYYY-MM-DD** for date-only expressions (e.g., 'this Thursday').
-        - Use **YYYY-MM-DD HH:mm** for date/time expressions (e.g., 'this Thursday at 3pm').
+        - Use **YYYY-MM-DDTHH:mm:ss±HH:MM** for date/time expressions (e.g., 'this Thursday at 3pm').
 
         Follow these instructions:
         1. Only modify date and time expressions.
@@ -79,9 +80,8 @@ export const extractAndNormaliseDates = async (text: string) => {
             - If the expression **includes a time** (e.g., 'at 3pm', '10:00 AM'), use the tool 'normalizeDatetimes' to get the correct datetime.
             - If the expression **only refers to a date** (e.g., 'this Thursday', 'Monday next week'), use the tool 'normalizeDates' to get the correct date.
 
-        Return only the modified Email with the normalized date and time expressions. Return everything pased in as the Email field. Don't include the Today is. Do not include any extra text or explanations.
+        Return only the modified Email with the normalized date and time expressions. Return everything pased in as the Email field. Don't include the Today is. Do not include any extra text or explanations. Make sure to return the whole email message.
 
-        Email: ${text} 
         Today is: ${new Date().toLocaleString("en-US", {
             year: "numeric",
             month: "long",
@@ -91,9 +91,19 @@ export const extractAndNormaliseDates = async (text: string) => {
             second: "2-digit",
             hour12: true,
             timeZoneName: "short",
-        })}`,
+        })}
+
+        EMAIL MESSAGE START
+        ${text} 
+        EMAIL MESSAGE END
+        `,
         ""
     );
+
+    console.log({
+        textIn: text,
+        textOut: res[res.length - 1].content[0].text,
+    });
 
     return res[res.length - 1].content[0].text;
 };
@@ -104,15 +114,34 @@ export const extractAndNormaliseDates = async (text: string) => {
 
 // ``
 
-const normalizeDatetimes = (phrases: string[], referenceDate = new Date()) => {
+const normalizeDatetimes = (
+    phrases: string[],
+    referenceDate = new Date(),
+    timeZone = "America/Vancouver"
+) => {
     return phrases.map((phrase) => {
         const parsed = chrono.parse(phrase, referenceDate)[0];
+        const date = parsed?.start?.date();
         return {
             phrase,
-            normalized: parsed?.start?.date().toISOString() || null,
+            normalized: date
+                ? DateTime.fromJSDate(date, { zone: "utc" })
+                      .setZone(timeZone)
+                      .toISO()
+                : null,
         };
     });
 };
+
+// const normalizeDatetimes = (phrases: string[], referenceDate = new Date()) => {
+//     return phrases.map((phrase) => {
+//         const parsed = chrono.parse(phrase, referenceDate)[0];
+//         return {
+//             phrase,
+//             normalized: parsed?.start?.date().toISOString() || null,
+//         };
+//     });
+// };
 
 const normalizeDates = (datePhrases: string[], referenceDate = new Date()) => {
     return datePhrases.map((phrase) => {

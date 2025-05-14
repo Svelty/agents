@@ -1,11 +1,26 @@
-import { scheduleBots } from "./agent/agents/emailLeadsReply";
+import { runInboxBot, scheduleBots } from "./agent/agents/emailLeadsReply";
 import db from "./database/db";
 import { startServer } from "./server";
+import {
+    breakTimesIntoSlots,
+    getAvailableTimes,
+    getMessageById,
+    getNextThreadWithUnreadMessage,
+    listCalendarEvents,
+} from "./service/googleService";
 
 (async function run() {
     try {
         await db.migrate.latest();
         console.log("Migrations complete.");
+
+        // const res = await getAvailableTimes();
+        // console.log(res);
+        // const res2 = breakTimesIntoSlots(res, 15);
+        // console.log(res2);
+
+        // const res = await listCalendarEvents();
+        // console.log(res);
 
         startServer();
 

@@ -4,7 +4,6 @@ import { startServer } from "./server";
 import {
     breakTimesIntoSlots,
     getAvailableTimes,
-    getMessageById,
     getNextThreadWithUnreadMessage,
     listCalendarEvents,
 } from "./service/googleService";

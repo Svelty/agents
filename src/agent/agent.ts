@@ -42,6 +42,8 @@ export class AgentService {
         prompt: string | ResponseInput,
         initalInstructions: string
     ) {
+        const model = "gpt-4.1"; //"o4-mini",   //"gpt-4o" $2.50, o4-mini $1.10, gpt-4.1 $2.00
+
         let input: any[] = [];
         if (typeof prompt == "string") {
             input.push({ role: "user", content: prompt });
@@ -55,7 +57,7 @@ export class AgentService {
         });
 
         const request = {
-            model: "gpt-4.1", //"o4-mini",   //"gpt-4o" $2.50, o4-mini $1.10, gpt-4.1 $2.00
+            model: model,
             input,
             instructions: initalInstructions,
             previous_response_id: null,
@@ -75,7 +77,7 @@ export class AgentService {
 
         let followUpResponse;
 
-        let circutBreaker = 0;
+        let iterations = 0;
         while (hasFunctionCall) {
             for (const action of modelOutput) {
                 if (action.type == "function_call") {
@@ -83,6 +85,7 @@ export class AgentService {
                     const tool = this.getTool(action.name);
 
                     if (tool) {
+                        console.log("running tool: " + tool.name);
                         //@ts-ignore
                         const params = tool?.parameters?.properties
                             ? Object.keys(tool.parameters.properties)
@@ -112,7 +115,7 @@ export class AgentService {
             }
 
             const functionResultsRequest = {
-                model: "gpt-4o-mini", // $.25  //"gpt-4o" $2.50, o3-mini $1.10 -- dont use o3 use o1
+                model: model,
                 input,
                 instructions: initalInstructions,
                 // previous_response_id: previousResponseId,
@@ -121,7 +124,7 @@ export class AgentService {
                 tools,
             };
 
-            console.log(`agent is on iteration ${circutBreaker} `);
+            console.log(`agent is on iteration ${iterations} `);
 
             followUpResponse = await createModelResponseRequest(
                 functionResultsRequest
@@ -132,8 +135,8 @@ export class AgentService {
                 (obj) => obj.type === "function_call"
             );
 
-            circutBreaker++;
-            if (circutBreaker > 20) {
+            iterations++;
+            if (iterations > 20) {
                 break;
             }
         }
